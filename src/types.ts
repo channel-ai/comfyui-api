@@ -112,6 +112,13 @@ export type WebpOptions = z.infer<typeof WebpOptionsSchema>;
 export const OutputConversionOptionsSchema = z.object({
   format: z.enum(["jpeg", "jpg", "webp"]).describe("output format"),
   options: z.union([JPEGOptionsSchema, WebpOptionsSchema]).optional(),
+  strip_batch_suffix: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe(
+      "Remove the batch suffix from filenames (e.g., 'promptid_00001.png' becomes 'promptid.png')"
+    ),
 });
 
 export type OutputConversionOptions = z.infer<

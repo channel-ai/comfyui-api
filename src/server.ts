@@ -318,6 +318,14 @@ server.after(() => {
             } catch (e: any) {
               log.warn(`Failed to convert image: ${e.message}`);
             }
+
+            /**
+             * Strip batch suffix like _00001 or _00001_ from filename if requested
+             * e.g., "promptid_00001.png" -> "promptid.png"
+             */
+            if (convert_output.strip_batch_suffix) {
+              filename = filename.replace(/_\d+_?(\.[^/.]+)$/, "$1");
+            }
           }
           filenames.push(filename);
           buffers.push(fileBuffer);
