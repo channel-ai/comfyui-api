@@ -35,7 +35,6 @@ export class S3StorageProvider implements StorageProvider {
         connectionTimeout: 10000, // 10 seconds
         requestTimeout: 0, // No timeout
       }),
-      forcePathStyle: true, // Required for LocalStack or custom S3 endpoints
     });
   }
 
