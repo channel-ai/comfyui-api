@@ -210,5 +210,8 @@ export async function convertImageBuffer(
     image = image.jpeg(conversionOptions);
   }
 
-  return image.toBuffer();
+  const buffer = await image.toBuffer();
+  // Sharp may return a SharedArrayBuffer-backed buffer in some environments (e.g. SEA builds).
+  // AWS SDK doesn't support SharedArrayBuffer, so we copy to a regular Buffer.
+  return Buffer.from(buffer);
 }
