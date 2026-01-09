@@ -93,6 +93,7 @@ const PromptResponseSchema = PromptRequestSchema.extend({
   filenames: z.array(z.string()).optional(),
   status: z.enum(["ok"]).optional(),
   stats: ExecutionStatsSchema.optional(),
+  metadata: z.record(z.array(z.any())).optional(),
 });
 
 const WorkflowResponseSchema = PromptResponseSchema.extend({
@@ -290,11 +291,13 @@ server.after(() => {
         buffers: Buffer[];
         filenames: string[];
         stats: any;
+        metadata: Record<string, any[]>;
       };
 
       const postProcessOutputs = async ({
         outputs,
         stats,
+        metadata,
       }: PromptOutputsWithStats): Promise<ProcessedOutput> => {
         stats.preprocess_time = preprocessTime - start;
         stats.comfy_round_trip_time = Date.now() - preprocessTime;
@@ -340,6 +343,7 @@ server.after(() => {
           buffers,
           filenames,
           stats,
+          metadata,
         };
       };
 
@@ -375,18 +379,21 @@ server.after(() => {
         images: string[];
         filenames: string[];
         stats: any;
+        metadata: Record<string, any[]>;
       }> | null = null;
 
       type Handler = (data: ProcessedOutput) => Promise<{
         images: string[];
         filenames: string[];
         stats: any;
+        metadata: Record<string, any[]>;
       }>;
 
       const webhookHandler: Handler = async ({
         buffers,
         filenames,
         stats,
+        metadata,
       }: ProcessedOutput) => {
         if (!webhook) {
           throw new Error("Webhook URL is not defined");
@@ -418,17 +425,19 @@ server.after(() => {
           );
         }
         await Promise.all(webhookPromises);
-        return { images, filenames, stats };
+        return { images, filenames, stats, metadata };
       };
 
       const uploadHandler: Handler = async ({
         buffers,
         filenames,
         stats,
+        metadata,
       }): Promise<{
         images: string[];
         filenames: string[];
         stats: any;
+        metadata: Record<string, any[]>;
       }> => {
         const uploadPromises: Promise<void>[] = [];
         const images: string[] = [];
@@ -455,7 +464,7 @@ server.after(() => {
         }
 
         await Promise.all(uploadPromises);
-        return { images, filenames, stats };
+        return { images, filenames, stats, metadata };
       };
 
       const storageProvider = remoteStorageManager.storageProviders.find(
@@ -476,15 +485,15 @@ server.after(() => {
         uploadPromise = runPromptPromise.then(uploadHandler);
       } else {
         uploadPromise = runPromptPromise.then(
-          async ({ buffers, filenames, stats }) => {
+          async ({ buffers, filenames, stats, metadata }) => {
             const images: string[] = buffers.map((b) => b.toString("base64"));
-            return { images, filenames, stats };
+            return { images, filenames, stats, metadata };
           }
         );
       }
 
       const finalStatsPromise = uploadPromise.then(
-        ({ images, stats, filenames }) => {
+        ({ images, stats, filenames, metadata }) => {
           stats.upload_time =
             Date.now() -
             start -
@@ -493,7 +502,7 @@ server.after(() => {
             stats.postprocess_time;
           stats.total_time = Date.now() - start;
           log.debug(stats);
-          return { images, stats, filenames };
+          return { images, stats, filenames, metadata };
         }
       );
 
@@ -501,7 +510,7 @@ server.after(() => {
         reply.code(202).send({ ...request.body, status: "ok", id, prompt });
       }
 
-      const { images, stats, filenames } = await finalStatsPromise;
+      const { images, stats, filenames, metadata } = await finalStatsPromise;
 
       const outputPayload = {
         ...request.body,
@@ -510,6 +519,7 @@ server.after(() => {
         images,
         filenames,
         stats,
+        metadata,
       };
 
       if (webhook_v2) {

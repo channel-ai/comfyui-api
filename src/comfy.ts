@@ -110,10 +110,15 @@ export async function queuePrompt(prompt: ComfyPrompt): Promise<string> {
   return prompt_id;
 }
 
+export type PromptOutputs = {
+  files: Record<string, Buffer>;
+  metadata: Record<string, any[]>;
+} | null;
+
 export async function getPromptOutputs(
   promptId: string,
   log: FastifyBaseLogger
-): Promise<Record<string, Buffer> | null> {
+): Promise<PromptOutputs> {
   const resp = await fetch(`${config.comfyURL}/history/${promptId}`, {
     dispatcher: getProxyDispatcher(),
   });
@@ -124,6 +129,7 @@ export async function getPromptOutputs(
   }
   const body = (await resp.json()) as ComfyHistoryResponse;
   const allOutputs: Record<string, Buffer> = {};
+  const allMetadata: Record<string, any[]> = {};
   const fileLoadPromises: Promise<void>[] = [];
   if (!body[promptId]) {
     log.debug(`Prompt ${promptId} not found in history endpoint response`);
@@ -139,10 +145,12 @@ export async function getPromptOutputs(
           if (!filename) {
             /**
              * Some nodes have fields in the outputs that are not actual files.
-             * For example, the SaveAnimatedWebP node has a field called "animated"
-             * that only container boolean values mapping to the files present in
-             * .images. We can safely ignore these.
+             * Collect these as metadata (e.g., moderation data from custom nodes).
              */
+            if (!allMetadata[outputType]) {
+              allMetadata[outputType] = [];
+            }
+            allMetadata[outputType].push(outputFile);
             continue;
           }
           const filepath = path.join(config.outputDir, filename);
@@ -172,7 +180,7 @@ export async function getPromptOutputs(
     throw new Error("Prompt is not completed");
   }
   await Promise.all(fileLoadPromises);
-  return allOutputs;
+  return { files: allOutputs, metadata: allMetadata };
 }
 
 async function collectExecutionStats(
@@ -250,7 +258,7 @@ class HistoryEndpointPoller {
     this.maxTries = options.maxTries;
     this.interval = options.interval;
   }
-  async poll(): Promise<Record<string, Buffer> | null> {
+  async poll(): Promise<PromptOutputs> {
     while (this.currentTries < this.getMaxTries() || this.maxTries === 0) {
       this.log.debug(
         `Polling history endpoint for prompt ${this.promptId}, try ${
@@ -311,6 +319,7 @@ class HistoryEndpointPoller {
 export type PromptOutputsWithStats = {
   outputs: Record<string, Buffer>;
   stats: ExecutionStats;
+  metadata: Record<string, any[]>;
 };
 
 export async function runPromptAndGetOutputs(
@@ -343,7 +352,10 @@ export async function runPromptAndGetOutputs(
    * We wait for either the history endpoint to return the outputs, or the websocket
    * to signal that the prompt has completed.
    */
-  let firstToComplete: Record<string, Buffer> | ExecutionStats | null;
+  let firstToComplete:
+    | { files: Record<string, Buffer>; metadata: Record<string, any[]> }
+    | ExecutionStats
+    | null;
   try {
     firstToComplete = await Promise.race([historyPoll, executionStatsPromise]);
   } catch (e) {
@@ -363,7 +375,7 @@ export async function runPromptAndGetOutputs(
     log.info(`Prompt ${id} completed`);
     poller.setMaxTries(100);
     poller.setInterval(30);
-    const outputs = await historyPoll;
+    const result = await historyPoll;
     /**
      * We delete the comfyIDToApiID mapping after a short delay to prevent
      * this object from growing indefinitely.
@@ -371,8 +383,12 @@ export async function runPromptAndGetOutputs(
     setTimeout(() => {
       delete comfyIDToApiID[promptId];
     }, 1000);
-    if (outputs) {
-      return { outputs, stats: firstToComplete };
+    if (result) {
+      return {
+        outputs: result.files,
+        stats: firstToComplete,
+        metadata: result.metadata,
+      };
     }
     throw new Error("Failed to get prompt outputs");
   } else if (firstToComplete === null) {
@@ -391,9 +407,9 @@ export async function runPromptAndGetOutputs(
      */
     delete comfyIDToApiID[promptId];
   }, 1000);
-  const outputs = firstToComplete as Record<string, Buffer>;
+  const { files: outputs, metadata } = firstToComplete;
   const stats = await executionStatsPromise;
-  return { outputs, stats };
+  return { outputs, stats, metadata };
 }
 
 let wsClient: WebSocket | null = null;
