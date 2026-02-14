@@ -83,7 +83,7 @@ type PromptRequest = z.infer<typeof PromptRequestSchema>;
 const WorkflowRequestSchema = PromptRequestSchema.omit({ prompt: true }).extend(
   {
     input: z.record(z.any()),
-  }
+  },
 );
 
 export type WorkflowRequest = z.infer<typeof WorkflowRequestSchema>;
@@ -168,7 +168,7 @@ server.after(() => {
         return reply.code(200).send({ version, status: "healthy" });
       }
       return reply.code(500).send({ version, status: "not healthy" });
-    }
+    },
   );
 
   app.get(
@@ -197,7 +197,7 @@ server.after(() => {
         return reply.code(200).send({ version, status: "ready" });
       }
       return reply.code(503).send({ version, status: "not ready" });
-    }
+    },
   );
 
   app.get(
@@ -219,7 +219,7 @@ server.after(() => {
         modelResponse[modelType] = modelsByType[modelType].all;
       }
       return modelResponse;
-    }
+    },
   );
 
   /**
@@ -316,7 +316,7 @@ server.after(() => {
                */
               filename = originalFilename.replace(
                 /\.[^/.]+$/,
-                `.${convert_output.format}`
+                `.${convert_output.format}`,
               );
             } catch (e: any) {
               log.warn(`Failed to convert image: ${e.message}`);
@@ -333,8 +333,21 @@ server.after(() => {
           filenames.push(filename);
           buffers.push(fileBuffer);
           unlinks.push(
-            fsPromises.unlink(path.join(config.outputDir, originalFilename))
+            fsPromises.unlink(path.join(config.outputDir, originalFilename)),
           );
+          if (originalFilename.endsWith("_.png")) {
+            const alternativeFilename = path.join(
+              config.outputDir,
+              originalFilename.replace("_.png", ".png"),
+            );
+            unlinks.push(
+              fsPromises.access(alternativeFilename).then(() => {
+                fsPromises
+                  .unlink(path.join(config.outputDir, alternativeFilename))
+                  .catch(() => {});
+              }),
+            );
+          }
         }
         await Promise.all(unlinks);
         stats.postprocess_time =
@@ -361,7 +374,7 @@ server.after(() => {
             sendWebhook(webhook_v2, webhookBody, log, 2);
           } else if (webhook) {
             log.warn(
-              `.webhook has been deprecated in favor of .webhook_v2. Support for .webhook will be removed in a future version.`
+              `.webhook has been deprecated in favor of .webhook_v2. Support for .webhook will be removed in a future version.`,
             );
             const webhookBody = {
               event: "prompt.failed",
@@ -399,7 +412,7 @@ server.after(() => {
           throw new Error("Webhook URL is not defined");
         }
         log.warn(
-          `.webhook has been deprecated in favor of .webhook_v2. Support for .webhook will be removed in a future version.`
+          `.webhook has been deprecated in favor of .webhook_v2. Support for .webhook will be removed in a future version.`,
         );
         const webhookPromises: Promise<any>[] = [];
         const images: string[] = [];
@@ -420,8 +433,8 @@ server.after(() => {
                 stats,
               },
               log,
-              1
-            )
+              1,
+            ),
           );
         }
         await Promise.all(webhookPromises);
@@ -453,13 +466,13 @@ server.after(() => {
                 provider.createUrl({
                   ...request.body[provider.requestBodyUploadKey],
                   filename,
-                })
+                }),
               );
               break;
             }
           }
           uploadPromises.push(
-            remoteStorageManager.uploadFile(images[i], fileBuffer)
+            remoteStorageManager.uploadFile(images[i], fileBuffer),
           );
         }
 
@@ -470,7 +483,7 @@ server.after(() => {
       const storageProvider = remoteStorageManager.storageProviders.find(
         (provider) =>
           provider.requestBodyUploadKey &&
-          !!request.body[provider.requestBodyUploadKey]
+          !!request.body[provider.requestBodyUploadKey],
       );
       const asyncUpload =
         webhook ||
@@ -488,7 +501,7 @@ server.after(() => {
           async ({ buffers, filenames, stats, metadata }) => {
             const images: string[] = buffers.map((b) => b.toString("base64"));
             return { images, filenames, stats, metadata };
-          }
+          },
         );
       }
 
@@ -503,7 +516,7 @@ server.after(() => {
           stats.total_time = Date.now() - start;
           log.debug(stats);
           return { images, stats, filenames, metadata };
-        }
+        },
       );
 
       if (asyncUpload) {
@@ -535,7 +548,7 @@ server.after(() => {
       if (!asyncUpload) {
         return reply.send(outputPayload);
       }
-    }
+    },
   );
 
   app.post(
@@ -578,7 +591,7 @@ server.after(() => {
           interrupted: "failed",
         });
       }
-    }
+    },
   );
 
   const modelTypes = Object.keys(config.models);
@@ -607,8 +620,12 @@ server.after(() => {
       },
     },
     async (request, reply) => {
-      const { url, model_type, filename: filenameOverride, wait } =
-        request.body as z.infer<typeof DownloadRequestSchema>;
+      const {
+        url,
+        model_type,
+        filename: filenameOverride,
+        wait,
+      } = request.body as z.infer<typeof DownloadRequestSchema>;
 
       const log = app.log.child({ url, model_type });
 
@@ -656,15 +673,15 @@ server.after(() => {
         const finalPath = await remoteStorageManager.downloadFile(
           url,
           outputDir,
-          filename
+          filename,
         );
         const duration = (Date.now() - start) / 1000;
         const stats = await fsPromises.stat(
-          await fsPromises.realpath(finalPath)
+          await fsPromises.realpath(finalPath),
         );
 
         log.info(
-          `Download completed: ${finalPath} (${stats.size} bytes in ${duration}s)`
+          `Download completed: ${finalPath} (${stats.size} bytes in ${duration}s)`,
         );
 
         return reply.code(200).send({
@@ -681,7 +698,7 @@ server.after(() => {
           error: err.message,
         });
       }
-    }
+    },
   );
 
   // Recursively build the route tree from workflows
@@ -743,7 +760,7 @@ server.after(() => {
                   input: undefined,
                 }),
                 dispatcher: getProxyDispatcher(),
-              }
+              },
             );
             const body = (await resp.json()) as any;
             if (!resp.ok) {
@@ -753,7 +770,7 @@ server.after(() => {
             body.input = request.body.input;
 
             return reply.code(resp.status).send(body);
-          }
+          },
         );
 
         server.log.info(`Registered workflow ${route}/${key}`);
@@ -779,7 +796,7 @@ process.on("SIGINT", async () => {
 async function launchComfyUIAndAPIServerAndWaitForWarmup() {
   warm = false;
   server.log.info(
-    `Starting ComfyUI API ${config.apiVersion} with ComfyUI ${config.comfyVersion}`
+    `Starting ComfyUI API ${config.apiVersion} with ComfyUI ${config.comfyVersion}`,
   );
   launchComfyUI().catch((err: any) => {
     server.log.error(err.message);
@@ -819,7 +836,7 @@ async function launchComfyUIAndAPIServerAndWaitForWarmup() {
   comfyWebsocketClient = await connectToComfyUIWebsocketStream(
     handlers,
     server.log,
-    true
+    true,
   );
   await warmupComfyUI();
   wasEverWarm = true;
@@ -827,7 +844,7 @@ async function launchComfyUIAndAPIServerAndWaitForWarmup() {
 }
 
 async function downloadAllModels(
-  models: { url: string; local_path: string }[]
+  models: { url: string; local_path: string }[],
 ) {
   for (const { url, local_path } of models) {
     const dir = path.dirname(local_path);
@@ -840,19 +857,19 @@ async function processManifest() {
   if (config.manifest) {
     if (config.manifest.apt) {
       server.log.info(
-        `Installing ${config.manifest.apt.length} apt packages specified in manifest`
+        `Installing ${config.manifest.apt.length} apt packages specified in manifest`,
       );
       await aptInstallPackages(config.manifest.apt, server.log);
     }
     if (config.manifest.pip) {
       server.log.info(
-        `Installing ${config.manifest.pip.length} pip packages specified in manifest`
+        `Installing ${config.manifest.pip.length} pip packages specified in manifest`,
       );
       await pipInstallPackages(config.manifest.pip, server.log);
     }
     if (config.manifest.custom_nodes) {
       server.log.info(
-        `Installing ${config.manifest.custom_nodes.length} custom nodes specified in manifest`
+        `Installing ${config.manifest.custom_nodes.length} custom nodes specified in manifest`,
       );
       for (const node of config.manifest.custom_nodes) {
         await installCustomNode(node, server.log);
@@ -860,13 +877,13 @@ async function processManifest() {
     }
     if (config.manifest.models.before_start) {
       server.log.info(
-        `Downloading ${config.manifest.models.before_start.length} models specified in manifest before startup`
+        `Downloading ${config.manifest.models.before_start.length} models specified in manifest before startup`,
       );
       await downloadAllModels(config.manifest.models.before_start);
     }
     if (config.manifest.models.after_start) {
       server.log.info(
-        `Downloading ${config.manifest.models.after_start.length} models specified in manifest after startup`
+        `Downloading ${config.manifest.models.after_start.length} models specified in manifest after startup`,
       );
 
       // Don't await, do it in the background
@@ -882,7 +899,7 @@ export async function start() {
     await processManifest();
     if (config.manifest) {
       server.log.info(
-        `Processed manifest file in ${(Date.now() - start) / 1000}s`
+        `Processed manifest file in ${(Date.now() - start) / 1000}s`,
       );
     }
 
