@@ -341,10 +341,12 @@ server.after(() => {
               originalFilename.replace("_.png", ".png"),
             );
             unlinks.push(
-              fsPromises.access(alternativeFilename).then(() => {
-                fsPromises
-                  .unlink(path.join(config.outputDir, alternativeFilename))
-                  .catch(() => {});
+              fsPromises.unlink(alternativeFilename).catch((err: any) => {
+                if (err?.code !== "ENOENT") {
+                  log.warn(
+                    `Failed to clean up alternative file ${alternativeFilename}: ${err.message}`,
+                  );
+                }
               }),
             );
           }
