@@ -9,6 +9,7 @@ import {
 } from "fastify-type-provider-zod";
 import fsPromises from "fs/promises";
 import path from "path";
+import os from "os";
 import config from "./config";
 import {
   zodToMarkdownTable,
@@ -49,6 +50,7 @@ import { fetch } from "undici";
 import { getProxyDispatcher } from "./proxy-dispatcher";
 
 const { apiVersion: version } = config;
+const hostname = os.hostname();
 
 const server = Fastify({
   bodyLimit: config.maxBodySize,
@@ -92,6 +94,7 @@ const PromptResponseSchema = PromptRequestSchema.extend({
   images: z.array(z.string()).optional(),
   filenames: z.array(z.string()).optional(),
   status: z.enum(["ok"]).optional(),
+  hostname: z.string(),
   stats: ExecutionStatsSchema.optional(),
   metadata: z.record(z.array(z.any())).optional(),
 });
@@ -530,7 +533,9 @@ server.after(() => {
       );
 
       if (asyncUpload) {
-        reply.code(202).send({ ...request.body, status: "ok", id, prompt });
+        reply
+          .code(202)
+          .send({ ...request.body, status: "ok", id, prompt, hostname });
       }
 
       const { images, stats, filenames, metadata } = await finalStatsPromise;
@@ -541,6 +546,7 @@ server.after(() => {
         prompt,
         images,
         filenames,
+        hostname,
         stats,
         metadata,
       };
