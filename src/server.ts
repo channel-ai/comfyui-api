@@ -112,6 +112,9 @@ let warm = false;
 let wasEverWarm = false;
 let queueDepth = 0;
 
+const isQueueAtCapacity = () =>
+  config.maxQueueDepth > 0 && queueDepth >= config.maxQueueDepth;
+
 server.register(fastifySwagger, {
   openapi: {
     openapi: "3.0.0",
@@ -190,10 +193,7 @@ server.after(() => {
       },
     },
     async (request, reply) => {
-      if (
-        warm &&
-        (!config.maxQueueDepth || queueDepth < config.maxQueueDepth)
-      ) {
+      if (warm && !isQueueAtCapacity()) {
         return reply.code(200).send({ version, status: "ready" });
       }
       return reply.code(503).send({ version, status: "not ready" });
@@ -244,11 +244,19 @@ server.after(() => {
           200: PromptResponseSchema,
           202: PromptResponseSchema,
           400: PromptErrorResponseSchema,
+          503: PromptErrorResponseSchema,
         },
       },
     },
     async (request, reply) => {
       let { prompt, id, webhook, webhook_v2, convert_output } = request.body;
+
+      if (isQueueAtCapacity()) {
+        return reply.code(503).send({
+          error: `Queue is full: current depth ${queueDepth}, max depth ${config.maxQueueDepth}`,
+          location: "queue",
+        });
+      }
 
       /**
        * Here we go through all the nodes in the prompt to validate it,
