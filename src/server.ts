@@ -114,9 +114,10 @@ type ModelResponse = z.infer<typeof ModelResponseSchema>;
 let warm = false;
 let wasEverWarm = false;
 let queueDepth = 0;
+let inFlight = 0;
 
 const isQueueAtCapacity = () =>
-  config.maxQueueDepth > 0 && queueDepth >= config.maxQueueDepth;
+  config.maxQueueDepth > 0 && inFlight >= config.maxQueueDepth;
 
 server.register(fastifySwagger, {
   openapi: {
@@ -256,10 +257,12 @@ server.after(() => {
 
       if (isQueueAtCapacity()) {
         return reply.code(503).send({
-          error: `Queue is full: current depth ${queueDepth}, max depth ${config.maxQueueDepth}`,
+          error: `Queue is full: in-flight ${inFlight}, max depth ${config.maxQueueDepth}`,
           location: "queue",
         });
       }
+      inFlight++;
+      try {
 
       /**
        * Here we go through all the nodes in the prompt to validate it,
@@ -563,6 +566,9 @@ server.after(() => {
 
       if (!asyncUpload) {
         return reply.send(outputPayload);
+      }
+      } finally {
+        inFlight--;
       }
     },
   );
