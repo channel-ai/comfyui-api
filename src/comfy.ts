@@ -2,6 +2,7 @@ import { sleep } from "./utils";
 import config from "./config";
 import { CommandExecutor } from "./commands";
 import { HistoryEndpointPoller } from "./history-poller";
+import { armJobWatchdog } from "./job-watchdog";
 import { FastifyBaseLogger } from "fastify";
 import {
   ComfyPrompt,
@@ -254,6 +255,21 @@ export async function runPromptAndGetOutputs(
   const promptId = await queuePrompt(prompt);
   comfyIDToApiID[promptId] = id;
   log.debug(`Prompt ${id} queued as comfy prompt id: ${promptId}`);
+
+  /**
+   * Self-kill watchdog: if this prompt neither completes nor errors within
+   * jobTimeoutMs, ComfyUI is almost certainly wedged (e.g. a VAE-decode
+   * deadlock — GPU idle, uninterruptible). A hung job pins its inFlight slot
+   * forever, so we exit and let the orchestrator redeploy a fresh replica.
+   */
+  const watchdog = armJobWatchdog(config.jobTimeoutMs, () => {
+    log.fatal(
+      `Prompt ${id} (comfy ${promptId}) did not finish within ${config.jobTimeoutMs}ms; ` +
+        `ComfyUI is likely wedged. Exiting to trigger redeploy.`
+    );
+    process.exit(1);
+  });
+  try {
   /**
    * We start with a slow poll to the history endpoint, both as a safety measure around websocket
    * failures, and to avoid hammering the history endpoint with requests in the case of many queued
@@ -335,6 +351,9 @@ export async function runPromptAndGetOutputs(
   const { files: outputs, metadata } = firstToComplete;
   const stats = await executionStatsPromise;
   return { outputs, stats, metadata };
+  } finally {
+    watchdog.clear();
+  }
 }
 
 let wsClient: WebSocket | null = null;
