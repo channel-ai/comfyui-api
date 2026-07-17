@@ -1,6 +1,7 @@
 import { sleep } from "./utils";
 import config from "./config";
 import { CommandExecutor } from "./commands";
+import { HistoryEndpointPoller } from "./history-poller";
 import { FastifyBaseLogger } from "fastify";
 import {
   ComfyPrompt,
@@ -239,83 +240,6 @@ async function collectExecutionStats(
 
 export const comfyIDToApiID: Record<string, string> = {};
 
-class HistoryEndpointPoller {
-  private promptId: string;
-  private log: FastifyBaseLogger;
-  private maxTries: number;
-  private interval: number;
-  private currentTries: number = 0;
-  private sleepTimer: NodeJS.Timeout | null = null;
-  private resolveCurrentSleep: (() => void) | null = null;
-  constructor(options: {
-    promptId: string;
-    log: FastifyBaseLogger;
-    maxTries: number;
-    interval: number;
-  }) {
-    this.promptId = options.promptId;
-    this.log = options.log;
-    this.maxTries = options.maxTries;
-    this.interval = options.interval;
-  }
-  async poll(): Promise<PromptOutputs> {
-    while (this.currentTries < this.getMaxTries() || this.maxTries === 0) {
-      this.log.debug(
-        `Polling history endpoint for prompt ${this.promptId}, try ${
-          this.currentTries
-        } of ${this.getMaxTries()}`
-      );
-      const outputs = await getPromptOutputs(this.promptId, this.log);
-      if (outputs) {
-        return outputs;
-      }
-      this.currentTries++;
-      this.log.debug(
-        `Polling history endpoint for prompt ${
-          this.promptId
-        }, sleep for ${this.getInterval()}ms`
-      );
-      await new Promise<void>((resolve) => {
-        this.resolveCurrentSleep = resolve;
-        this.sleepTimer = setTimeout(resolve, this.getInterval());
-      });
-    }
-    return null;
-  }
-
-  getInterval(): number {
-    return this.interval;
-  }
-
-  getMaxTries(): number {
-    return this.maxTries;
-  }
-
-  setInterval(interval: number, skipCurrentTimeout: boolean = true): void {
-    this.interval = interval;
-    if (skipCurrentTimeout && this.sleepTimer) {
-      clearTimeout(this.sleepTimer);
-      this.sleepTimer = null;
-    }
-    if (skipCurrentTimeout && this.resolveCurrentSleep) {
-      this.resolveCurrentSleep();
-      this.resolveCurrentSleep = null;
-    }
-  }
-
-  setMaxTries(maxTries: number, reset: boolean = true): void {
-    this.maxTries = maxTries;
-    if (reset) {
-      this.currentTries = 0;
-    }
-  }
-
-  stop(): void {
-    this.setMaxTries(this.currentTries);
-    this.setInterval(0);
-  }
-}
-
 export type PromptOutputsWithStats = {
   outputs: Record<string, Buffer>;
   stats: ExecutionStats;
@@ -340,6 +264,7 @@ export async function runPromptAndGetOutputs(
     log,
     maxTries: 0,
     interval: 1000,
+    getOutputs: () => getPromptOutputs(promptId, log),
   });
   const historyPoll = poller.poll();
 
