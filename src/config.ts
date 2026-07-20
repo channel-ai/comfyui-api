@@ -25,6 +25,7 @@ const {
   HTTP_AUTH_HEADER_NAME,
   HTTP_AUTH_HEADER_VALUE,
   INPUT_DIR,
+  JOB_TIMEOUT_SECONDS = "600",
   LOG_LEVEL = "info",
   LRU_CACHE_SIZE_GB = "0",
   MANIFEST_JSON,
@@ -74,6 +75,9 @@ assert(maxBodySize > 0, "MAX_BODY_SIZE_MB must be a positive integer");
 
 const maxQueueDepth = parseInt(MAX_QUEUE_DEPTH, 10);
 assert(maxQueueDepth >= 0, "MAX_QUEUE_DEPTH must be a non-negative integer");
+
+const jobTimeoutMs = parseInt(JOB_TIMEOUT_SECONDS, 10) * 1000;
+assert(jobTimeoutMs >= 0, "JOB_TIMEOUT_SECONDS must be a non-negative integer");
 
 const alwaysRestartComfyUI = ALWAYS_RESTART_COMFYUI.toLowerCase() === "true";
 const prependFilenames = PREPEND_FILENAMES.toLowerCase() === "true";
@@ -463,6 +467,15 @@ const config = {
    * default: true
    */
   markdownSchemaDescriptions: MARKDOWN_SCHEMA_DESCRIPTIONS === "true",
+
+  /**
+   * How long a single prompt may run before the process self-kills to let the
+   * orchestrator redeploy a fresh replica. Guards against ComfyUI deadlocks
+   * (e.g. a wedged VAE decode) that would otherwise pin the inFlight slot
+   * forever. Specified by JOB_TIMEOUT_SECONDS env var, in ms here.
+   * default: 600000 (10 min). 0 disables the watchdog.
+   */
+  jobTimeoutMs,
 
   /**
    * The maximum size of request bodies, in bytes.
