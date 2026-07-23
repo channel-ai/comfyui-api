@@ -376,7 +376,15 @@ server.after(() => {
         };
       };
 
-      const runPromptPromise = runPromptAndGetOutputs(id, prompt, log)
+      // The internal warmup call tags itself so we skip the self-kill watchdog
+      // for it — a slow cold-boot warmup must not redeploy the container.
+      const isWarmup = request.headers["x-comfyui-api-warmup"] === "true";
+      const runPromptPromise = runPromptAndGetOutputs(
+        id,
+        prompt,
+        log,
+        isWarmup ? 0 : config.jobTimeoutMs
+      )
         .catch((e: any) => {
           log.error(`Failed to run prompt: ${e.message}`);
           if (webhook_v2) {
