@@ -86,6 +86,10 @@ export async function warmupComfyUI(): Promise<void> {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        // Warmup runs a full generation and can be legitimately slow (cold
+        // model load). Tag it so the /prompt handler skips the self-kill
+        // watchdog — otherwise a slow warmup redeploys the container in a loop.
+        "x-comfyui-api-warmup": "true",
       },
       body: JSON.stringify({ prompt: config.warmupPrompt }),
       dispatcher: getProxyDispatcher(),
@@ -250,7 +254,8 @@ export type PromptOutputsWithStats = {
 export async function runPromptAndGetOutputs(
   id: string,
   prompt: ComfyPrompt,
-  log: FastifyBaseLogger
+  log: FastifyBaseLogger,
+  watchdogMs: number = config.jobTimeoutMs
 ): Promise<PromptOutputsWithStats> {
   const promptId = await queuePrompt(prompt);
   comfyIDToApiID[promptId] = id;
@@ -262,9 +267,9 @@ export async function runPromptAndGetOutputs(
    * deadlock — GPU idle, uninterruptible). A hung job pins its inFlight slot
    * forever, so we exit and let the orchestrator redeploy a fresh replica.
    */
-  const watchdog = armJobWatchdog(config.jobTimeoutMs, () => {
+  const watchdog = armJobWatchdog(watchdogMs, () => {
     log.fatal(
-      `Prompt ${id} (comfy ${promptId}) did not finish within ${config.jobTimeoutMs}ms; ` +
+      `Prompt ${id} (comfy ${promptId}) did not finish within ${watchdogMs}ms; ` +
         `ComfyUI is likely wedged. Exiting to trigger redeploy.`
     );
     process.exit(1);
