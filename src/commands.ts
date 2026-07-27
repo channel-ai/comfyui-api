@@ -21,6 +21,12 @@ export class CommandExecutor {
       this.process = spawn(command, args, {
         env: env,
         stdio: "inherit", // Use the parent's stdin, stdout, and stderr
+        /**
+         * Own process group, so kill() reaches the whole subtree. `comfy
+         * launch` is a thin wrapper that spawns main.py as a grandchild, and
+         * main.py is the one holding the RSS we need to release.
+         */
+        detached: true,
       });
 
       this.process.on("error", (err) => {
@@ -44,6 +50,21 @@ export class CommandExecutor {
         }
       });
     });
+  }
+
+  /**
+   * SIGKILLs the subprocess and every process it spawned.
+   *
+   * Used by the job watchdog. When ComfyUI wedges, its RSS is what pins the
+   * container cgroup over memory.high, and the kernel then throttles every
+   * task in that cgroup in mem_cgroup_handle_over_high — including our own
+   * process.exit(). Freeing this memory is what lets us exit at all, so this
+   * must run *before* the exit, not after.
+   */
+  kill(): void {
+    if (this.process?.pid) {
+      process.kill(-this.process.pid, "SIGKILL"); // negative pid => process group
+    }
   }
 
   /**

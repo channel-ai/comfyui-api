@@ -266,12 +266,18 @@ export async function runPromptAndGetOutputs(
    * jobTimeoutMs, ComfyUI is almost certainly wedged (e.g. a VAE-decode
    * deadlock — GPU idle, uninterruptible). A hung job pins its inFlight slot
    * forever, so we exit and let the orchestrator redeploy a fresh replica.
+   *
+   * Kill ComfyUI first. A wedge is often ComfyUI's RSS pushing the container
+   * cgroup past memory.high, at which point the kernel throttles every task in
+   * the cgroup — our own process.exit() included — and we hang instead of
+   * dying. Releasing ComfyUI's memory is what makes the exit possible.
    */
   const watchdog = armJobWatchdog(watchdogMs, () => {
     log.fatal(
       `Prompt ${id} (comfy ${promptId}) did not finish within ${watchdogMs}ms; ` +
-        `ComfyUI is likely wedged. Exiting to trigger redeploy.`
+        `ComfyUI is likely wedged. Killing ComfyUI and exiting to trigger redeploy.`
     );
+    commandExecutor.kill();
     process.exit(1);
   });
   try {
