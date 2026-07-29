@@ -277,8 +277,16 @@ export async function runPromptAndGetOutputs(
       `Prompt ${id} (comfy ${promptId}) did not finish within ${watchdogMs}ms; ` +
         `ComfyUI is likely wedged. Killing ComfyUI and exiting to trigger redeploy.`
     );
+    (log as any).flush?.();
     commandExecutor.kill();
-    process.exit(1);
+    /**
+     * SIGKILL ourselves instead of process.exit(): exit still has to run JS
+     * in a cgroup that may stay memory-throttled (ComfyUI's pages can be
+     * pinned in unkillable NFS page-fault waits, so killing it doesn't always
+     * release memory). Kernel signal delivery needs no JS — observed in prod:
+     * a 1.15.10 replica logged this fatal and then stayed alive for 17 hours.
+     */
+    process.kill(process.pid, "SIGKILL");
   });
   try {
   /**
