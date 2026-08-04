@@ -30,7 +30,14 @@ async function linkIfDoesNotExist(
     .catch(async (err: any) => {
       if (err.code === "ENOENT") {
         log.debug(`Linking ${src} to ${dest}`);
-        await fsPromises.symlink(src, dest);
+        // Hardlink, not symlink: ComfyUI >=0.28 realpaths input paths and
+        // rejects anything resolving outside its input dir, so a symlink to
+        // the cache fails VALIDATE_INPUTS (VHS_LoadVideo: "Invalid video file").
+        // EXDEV means the cache is on another filesystem — copy instead.
+        await fsPromises.link(src, dest).catch(async (linkErr: any) => {
+          if (linkErr.code !== "EXDEV") throw linkErr;
+          await fsPromises.copyFile(src, dest);
+        });
         log.debug(`Linked ${src} to ${dest}`);
       } else {
         log.error(
