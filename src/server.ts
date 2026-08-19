@@ -23,6 +23,7 @@ import { convertImageBuffer } from "./image-tools";
 import getStorageManager from "./remote-storage-manager";
 import { NodeProcessError, preprocessNodes } from "./comfy-node-preprocessors";
 import {
+  comfyPid,
   warmupComfyUI,
   waitForComfyUIToStart,
   launchComfyUI,
@@ -33,6 +34,7 @@ import {
   getModels,
   interruptPrompt,
 } from "./comfy";
+import { armDeadman, startHeartbeat } from "./deadman";
 import {
   PromptRequestSchema as BasePromptRequestSchema,
   PromptErrorResponseSchema,
@@ -376,14 +378,16 @@ server.after(() => {
         };
       };
 
-      // The internal warmup call tags itself so we skip the self-kill watchdog
-      // for it — a slow cold-boot warmup must not redeploy the container.
+      // The internal warmup call tags itself to get a longer watchdog — a
+      // cold-boot warmup is legitimately slow, but exempting it entirely
+      // zombied workers for days when ComfyUI wedged mid-warmup: no watchdog,
+      // /ready 503 forever, no traffic ever routed.
       const isWarmup = request.headers["x-comfyui-api-warmup"] === "true";
       const runPromptPromise = runPromptAndGetOutputs(
         id,
         prompt,
         log,
-        isWarmup ? 0 : config.jobTimeoutMs
+        isWarmup ? 3 * config.jobTimeoutMs : config.jobTimeoutMs
       )
         .catch((e: any) => {
           log.error(`Failed to run prompt: ${e.message}`);
@@ -823,6 +827,8 @@ process.on("SIGINT", async () => {
   process.exit(0);
 });
 
+let deadmanArmed = false;
+
 async function launchComfyUIAndAPIServerAndWaitForWarmup() {
   warm = false;
   server.log.info(
@@ -840,6 +846,13 @@ async function launchComfyUIAndAPIServerAndWaitForWarmup() {
   });
   await waitForComfyUIToStart(server.log);
   server.log.info(`ComfyUI ${config.comfyVersion} started.`);
+  if (!deadmanArmed) {
+    deadmanArmed = true;
+    const heartbeatFile = `/tmp/comfyui-api-heartbeat-${process.pid}`;
+    startHeartbeat(heartbeatFile);
+    armDeadman(heartbeatFile, process.pid, comfyPid());
+    server.log.info(`Deadman armed on ${heartbeatFile}`);
+  }
   if (!wasEverWarm) {
     await server.ready();
     server.swagger();

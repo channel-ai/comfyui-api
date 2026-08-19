@@ -48,6 +48,10 @@ export function shutdownComfyUI() {
   commandExecutor.interrupt();
 }
 
+export function comfyPid(): number | undefined {
+  return commandExecutor.pid;
+}
+
 export async function pingComfyUI(): Promise<void> {
   const res = await fetch(config.comfyURL, {
     dispatcher: getProxyDispatcher(),
