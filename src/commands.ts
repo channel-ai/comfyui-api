@@ -52,6 +52,10 @@ export class CommandExecutor {
     });
   }
 
+  get pid(): number | undefined {
+    return this.process?.pid;
+  }
+
   /**
    * SIGKILLs the subprocess and every process it spawned.
    *
